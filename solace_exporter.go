@@ -1280,19 +1280,57 @@ func (e *Exporter) getQueueDetailSemp1(ch chan<- prometheus.Metric) (ok float64)
 	return 1
 }
 
+//Get statistics of all vpn Names
+func (e *Exporter) getVpnListSemp2() (result []string) {
+	var vpnNameList []string
+	for nextURI := e.config.scrapeURI + "/SEMP/v2/monitor/msgVpns?select=msgVpnName"; nextURI != ""; {
+		body, err := e.getHTTP(nextURI)
+		if err != nil {
+			level.Error(e.logger).Log("msg", "Can't scrape getVpnListSemp2", "err", err)
+			return
+		}
+		defer body.Close()
+
+		bodyBytes, err := ioutil.ReadAll(body)
+
+		type vpnData struct {
+			Data []struct {
+				MsgVpnName string `json:"msgVpnName"`
+			} `json:"data"`
+			Meta struct {
+				Paging struct {
+					NextPageURI string `json:"nextPageUri"`
+				} `json:"paging"`
+			} `json:"meta"`
+		}
+
+		var target vpnData
+		err2 := json.Unmarshal(bodyBytes, &target)
+		if err2 != nil {
+			level.Error(e.logger).Log("msg", "Can't unmarshal Json QueueSemp2", "err", err2)
+		}
+
+		nextURI = target.Meta.Paging.NextPageURI
+
+		for _, vpnInfo := range target.Data {
+			vpnNameList = append(vpnNameList, vpnInfo.MsgVpnName)
+		}
+
+	}
+	return vpnNameList
+}
+
 var metricsQueueDet = metrics{
 	"queue_deleted_msgs_counts":       prometheus.NewDesc(namespace+"_"+"queue_deleted_msgs_counts", "Deleted queue messages counts.", variableLabelsVpnQueue, nil),
-	"queue_total_inbound_msgs_counts": prometheus.NewDesc(namespace+"_"+"queue_total_inbound_msgs_counts", "Total inbound queue counts of messages.", variableLabelsVpnQueue, nil),
-	"queue_total_inbound_msgs_bytes":  prometheus.NewDesc(namespace+"_"+"queue_total_inbound_msgs_bytes", "Total inbound queue bytes of messages.", variableLabelsVpnQueue, nil),
+	"queue_total_ingress_msgs_counts": prometheus.NewDesc(namespace+"_"+"queue_total_ingress_msgs_counts", "Total ingress queue counts of messages.", variableLabelsVpnQueue, nil),
+	"queue_total_ingress_msgs_bytes":  prometheus.NewDesc(namespace+"_"+"queue_total_ingress_msgs_bytes", "Total ingress queue bytes of messages.", variableLabelsVpnQueue, nil),
 }
 
 //Get statistics of all queues
 func (e *Exporter) getQueueSemp2(ch chan<- prometheus.Metric) (ok float64) {
+	vpnLists := e.getVpnListSemp2()
 
-	msgVpns := strings.Split(e.config.vpns, ",")
-
-	for _, msgVpn := range msgVpns {
-		//fmt.Printf("msgVpn", msgVpn)
+	for _, msgVpn := range vpnLists {
 		for nextURI := e.config.scrapeURI + "/SEMP/v2/monitor/msgVpns/" + msgVpn + "/queues"; nextURI != ""; {
 			body, err := e.getHTTP(nextURI)
 			if err != nil {
@@ -1308,8 +1346,8 @@ func (e *Exporter) getQueueSemp2(ch chan<- prometheus.Metric) (ok float64) {
 					MsgVpnName           string  `json:"msgVpnName"`
 					DeletedMsgCount      float64 `json:"deletedMsgCount"`
 					QueueName            string  `json:"queueName"`
-					TotalInboundMsgByte  float64 `json:"spooledByteCount"`
-					TotalInboundMsgCount float64 `json:"spooledMsgCount"`
+					TotalIngressMsgByte  float64 `json:"spooledByteCount"`
+					TotalIngressMsgCount float64 `json:"spooledMsgCount"`
 				} `json:"data"`
 				Meta struct {
 					Paging struct {
@@ -1328,8 +1366,67 @@ func (e *Exporter) getQueueSemp2(ch chan<- prometheus.Metric) (ok float64) {
 
 			for _, queue := range target.Data {
 				ch <- prometheus.MustNewConstMetric(metricsQueueDet["queue_deleted_msgs_counts"], prometheus.GaugeValue, queue.DeletedMsgCount, queue.MsgVpnName, queue.QueueName)
-				ch <- prometheus.MustNewConstMetric(metricsQueueDet["queue_total_inbound_msgs_counts"], prometheus.GaugeValue, queue.TotalInboundMsgCount, queue.MsgVpnName, queue.QueueName)
-				ch <- prometheus.MustNewConstMetric(metricsQueueDet["queue_total_inbound_msgs_bytes"], prometheus.GaugeValue, queue.TotalInboundMsgByte, queue.MsgVpnName, queue.QueueName)
+				ch <- prometheus.MustNewConstMetric(metricsQueueDet["queue_total_ingress_msgs_counts"], prometheus.GaugeValue, queue.TotalIngressMsgCount, queue.MsgVpnName, queue.QueueName)
+				ch <- prometheus.MustNewConstMetric(metricsQueueDet["queue_total_ingress_msgs_bytes"], prometheus.GaugeValue, queue.TotalIngressMsgByte, queue.MsgVpnName, queue.QueueName)
+			}
+		}
+	}
+
+	return 1
+}
+
+var metricsQueueInfoDet = metrics{
+	"queue_spooled_msgs_counts":       prometheus.NewDesc(namespace+"_"+"queue_spooled_msgs_counts", "Pending queue messages counts.", variableLabelsVpnQueue, nil),
+	"queue_deleted_msgs_counts":       prometheus.NewDesc(namespace+"_"+"queue_deleted_msgs_counts", "Deleted queue messages counts.", variableLabelsVpnQueue, nil),
+	"queue_total_ingress_msgs_counts": prometheus.NewDesc(namespace+"_"+"queue_total_ingress_msgs_counts", "Total ingress queue counts of messages.", variableLabelsVpnQueue, nil),
+	"queue_total_egress_msgs_counts":  prometheus.NewDesc(namespace+"_"+"queue_total_egress_msgs_counts", "Total egress queue counts of messages.", variableLabelsVpnQueue, nil),
+	"queue_total_ingress_msgs_bytes":  prometheus.NewDesc(namespace+"_"+"queue_total_ingress_msgs_bytes", "Total ingress queue bytes of messages.", variableLabelsVpnQueue, nil),
+}
+
+//Get statistic of all queues(pending,inbound,outbound)
+func (e *Exporter) getQueueStatisticsSemp2(ch chan<- prometheus.Metric) (ok float64) {
+	vpnLists := e.getVpnListSemp2()
+	for _, msgVpn := range vpnLists {
+		for nextURI := e.config.scrapeURI + "/SEMP/v2/__private_monitor__/msgVpns/" + msgVpn + "/queues"; nextURI != ""; {
+			body, err := e.getHTTP(nextURI)
+			if err != nil {
+				level.Error(e.logger).Log("msg", "Can't scrape getQueueDetailSemp2", "err", err)
+				return 0
+			}
+			defer body.Close()
+
+			bodyBytes, err := ioutil.ReadAll(body)
+
+			type QueueData struct {
+				Data []struct {
+					MsgVpnName           string  `json:"msgVpnName"`
+					DeletedMsgCount      float64 `json:"deletedMsgCount"`
+					QueueName            string  `json:"queueName"`
+					SpooledMsgCount      float64 `json:"currentSpooledMsgCount"`
+					TotalIngressMsgByte  float64 `json:"spooledByteCount"`
+					TotalIngressMsgCount float64 `json:"spooledMsgCount"`
+				} `json:"data"`
+				Meta struct {
+					Paging struct {
+						NextPageURI string `json:"nextPageUri"`
+					} `json:"paging"`
+				} `json:"meta"`
+			}
+
+			var target QueueData
+			err2 := json.Unmarshal(bodyBytes, &target)
+			if err2 != nil {
+				level.Error(e.logger).Log("msg", "Can't unmarshal Json QueueDetailSemp2", "err", err2)
+			}
+
+			nextURI = target.Meta.Paging.NextPageURI
+
+			for _, queue := range target.Data {
+				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_spooled_msgs_counts"], prometheus.GaugeValue, queue.SpooledMsgCount, queue.MsgVpnName, queue.QueueName)
+				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_deleted_msgs_counts"], prometheus.GaugeValue, queue.DeletedMsgCount, queue.MsgVpnName, queue.QueueName)
+				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_total_ingress_msgs_counts"], prometheus.GaugeValue, queue.TotalIngressMsgCount, queue.MsgVpnName, queue.QueueName)
+				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_total_egress_msgs_counts"], prometheus.GaugeValue, queue.TotalIngressMsgCount-queue.SpooledMsgCount-queue.DeletedMsgCount, queue.MsgVpnName, queue.QueueName)
+				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_total_ingress_msgs_bytes"], prometheus.GaugeValue, queue.TotalIngressMsgByte, queue.MsgVpnName, queue.QueueName)
 			}
 		}
 	}
@@ -1439,13 +1536,14 @@ const (
 	scopeVpnStatistics    = "vpnStats"
 	scopeVpnDetails       = "vpnDetails"
 	scopeQueueDetails     = "queueDetails"
+	scopeQueueStatistics  = "queueStatistics"
 )
 
 // Collection of configs
 type config struct {
 	listenAddr string
 	scrapeURI  string
-	vpns       string
+	//vpns       string
 	username   string
 	password   string
 	sslVerify  bool
@@ -1522,7 +1620,7 @@ func parseConfig(configFile string, conf *config, logger log.Logger) (ok bool) {
 	}
 
 	conf.listenAddr = parseConfigString(cfg, logger, "solace", "listenAddr", "SOLACE_LISTEN_ADDR", &oki)
-	conf.vpns = parseConfigString(cfg, logger, "solace", "vpns", "SOLACE_MSG_VPNS", &oki)
+	//conf.vpns = parseConfigString(cfg, logger, "solace", "vpns", "SOLACE_MSG_VPNS", &oki)
 	conf.scrapeURI = parseConfigString(cfg, logger, "solace", "scrapeUri", "SOLACE_SCRAPE_URI", &oki)
 	conf.username = parseConfigString(cfg, logger, "solace", "username", "SOLACE_USERNAME", &oki)
 	conf.password = parseConfigString(cfg, logger, "solace", "password", "SOLACE_PASSWORD", &oki)
@@ -1571,6 +1669,10 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 		}
 	case scopeQueueDetails:
 		for _, m := range metricsQueueDet {
+			ch <- m
+		}
+	case scopeQueueStatistics:
+		for _, m := range metricsQueueInfoDet {
 			ch <- m
 		}
 	}
@@ -1642,6 +1744,10 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		if up > 0 {
 			up = e.getQueueSemp2(ch)
 		}
+	case scopeQueueStatistics:
+		if up > 0 {
+			up = e.getQueueStatisticsSemp2(ch)
+		}
 	}
 }
 
@@ -1677,7 +1783,7 @@ func main() {
 	level.Info(logger).Log("msg", "Scraping",
 		"listenAddr", conf.listenAddr,
 		"scrapeURI", conf.scrapeURI,
-		"vpns", conf.vpns,
+		//"vpns", conf.vpns,
 		"username", conf.username,
 		"sslVerify", conf.sslVerify,
 		"timeout", conf.timeout,
@@ -1723,6 +1829,9 @@ func main() {
 	http.HandleFunc("/solace-queue-det", func(w http.ResponseWriter, r *http.Request) {
 		doHandle(w, r, scopeQueueDetails, conf, logger)
 	})
+	http.HandleFunc("/solace-queue-statistic", func(w http.ResponseWriter, r *http.Request) {
+		doHandle(w, r, scopeQueueStatistics, conf, logger)
+	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
@@ -1738,6 +1847,7 @@ func main() {
                 <li><a href='` + "/solace-vpn-stats" + `'>Solace Vpn only Statistics (VPN Access)</a></li>
                 <li><a href='` + "/solace-vpn-det" + `'>Solace Vpn only Detailed Metrics (VPN Access)</a></li>
 				<li><a href='` + "/solace-queue-det" + `'>Solace Queue only Detailed Metrics</a></li>
+				<li><a href='` + "/solace-queue-statistic" + `'>Solace Queue only Statistic Detailed Metrics</a></li>
             <ul>
             </body>
             </html>`))
