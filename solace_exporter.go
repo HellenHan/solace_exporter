@@ -1377,10 +1377,11 @@ func (e *Exporter) getQueueSemp2(ch chan<- prometheus.Metric) (ok float64) {
 
 var metricsQueueInfoDet = metrics{
 	"queue_spooled_msgs_counts":       prometheus.NewDesc(namespace+"_"+"queue_spooled_msgs_counts", "Pending queue messages counts.", variableLabelsVpnQueue, nil),
+	"queue_spooled_msgs_bytes":        prometheus.NewDesc(namespace+"_"+"queue_spooled_msgs_bytes", "Pending queue messages bytes.", variableLabelsVpnQueue, nil),
 	"queue_deleted_msgs_counts":       prometheus.NewDesc(namespace+"_"+"queue_deleted_msgs_counts", "Deleted queue messages counts.", variableLabelsVpnQueue, nil),
 	"queue_total_ingress_msgs_counts": prometheus.NewDesc(namespace+"_"+"queue_total_ingress_msgs_counts", "Total ingress queue counts of messages.", variableLabelsVpnQueue, nil),
-	"queue_total_egress_msgs_counts":  prometheus.NewDesc(namespace+"_"+"queue_total_egress_msgs_counts", "Total egress queue counts of messages.", variableLabelsVpnQueue, nil),
 	"queue_total_ingress_msgs_bytes":  prometheus.NewDesc(namespace+"_"+"queue_total_ingress_msgs_bytes", "Total ingress queue bytes of messages.", variableLabelsVpnQueue, nil),
+	"queue_total_egress_msgs_counts":  prometheus.NewDesc(namespace+"_"+"queue_total_egress_msgs_counts", "Total egress queue counts of messages.", variableLabelsVpnQueue, nil),
 }
 
 //Get statistic of all queues(pending,inbound,outbound)
@@ -1402,6 +1403,7 @@ func (e *Exporter) getQueueStatisticsSemp2(ch chan<- prometheus.Metric) (ok floa
 					MsgVpnName           string  `json:"msgVpnName"`
 					DeletedMsgCount      float64 `json:"deletedMsgCount"`
 					QueueName            string  `json:"queueName"`
+					SpooledMsgByte       float64 `json:"msgSpoolUsage"`
 					SpooledMsgCount      float64 `json:"currentSpooledMsgCount"`
 					TotalIngressMsgByte  float64 `json:"spooledByteCount"`
 					TotalIngressMsgCount float64 `json:"spooledMsgCount"`
@@ -1423,10 +1425,11 @@ func (e *Exporter) getQueueStatisticsSemp2(ch chan<- prometheus.Metric) (ok floa
 
 			for _, queue := range target.Data {
 				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_spooled_msgs_counts"], prometheus.GaugeValue, queue.SpooledMsgCount, queue.MsgVpnName, queue.QueueName)
+				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_spooled_msgs_bytes"], prometheus.GaugeValue, queue.SpooledMsgByte, queue.MsgVpnName, queue.QueueName)
 				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_deleted_msgs_counts"], prometheus.GaugeValue, queue.DeletedMsgCount, queue.MsgVpnName, queue.QueueName)
-				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_total_ingress_msgs_counts"], prometheus.GaugeValue, queue.TotalIngressMsgCount, queue.MsgVpnName, queue.QueueName)
-				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_total_egress_msgs_counts"], prometheus.GaugeValue, queue.TotalIngressMsgCount-queue.SpooledMsgCount-queue.DeletedMsgCount, queue.MsgVpnName, queue.QueueName)
-				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_total_ingress_msgs_bytes"], prometheus.GaugeValue, queue.TotalIngressMsgByte, queue.MsgVpnName, queue.QueueName)
+				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_total_ingress_msgs_counts"], prometheus.CounterValue, queue.TotalIngressMsgCount, queue.MsgVpnName, queue.QueueName)
+				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_total_ingress_msgs_bytes"], prometheus.CounterValue, queue.TotalIngressMsgByte, queue.MsgVpnName, queue.QueueName)
+				ch <- prometheus.MustNewConstMetric(metricsQueueInfoDet["queue_total_egress_msgs_counts"], prometheus.CounterValue, queue.TotalIngressMsgCount-queue.SpooledMsgCount-queue.DeletedMsgCount, queue.MsgVpnName, queue.QueueName)
 			}
 		}
 	}
@@ -1543,7 +1546,6 @@ const (
 type config struct {
 	listenAddr string
 	scrapeURI  string
-	//vpns       string
 	username   string
 	password   string
 	sslVerify  bool
@@ -1620,7 +1622,6 @@ func parseConfig(configFile string, conf *config, logger log.Logger) (ok bool) {
 	}
 
 	conf.listenAddr = parseConfigString(cfg, logger, "solace", "listenAddr", "SOLACE_LISTEN_ADDR", &oki)
-	//conf.vpns = parseConfigString(cfg, logger, "solace", "vpns", "SOLACE_MSG_VPNS", &oki)
 	conf.scrapeURI = parseConfigString(cfg, logger, "solace", "scrapeUri", "SOLACE_SCRAPE_URI", &oki)
 	conf.username = parseConfigString(cfg, logger, "solace", "username", "SOLACE_USERNAME", &oki)
 	conf.password = parseConfigString(cfg, logger, "solace", "password", "SOLACE_PASSWORD", &oki)
@@ -1783,7 +1784,6 @@ func main() {
 	level.Info(logger).Log("msg", "Scraping",
 		"listenAddr", conf.listenAddr,
 		"scrapeURI", conf.scrapeURI,
-		//"vpns", conf.vpns,
 		"username", conf.username,
 		"sslVerify", conf.sslVerify,
 		"timeout", conf.timeout,
