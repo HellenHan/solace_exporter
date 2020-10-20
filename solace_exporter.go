@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -1331,7 +1332,7 @@ func (e *Exporter) getQueueSemp2(ch chan<- prometheus.Metric) (ok float64) {
 	vpnLists := e.getVpnListSemp2()
 
 	for _, msgVpn := range vpnLists {
-		for nextURI := e.config.scrapeURI + "/SEMP/v2/monitor/msgVpns/" + msgVpn + "/queues"; nextURI != ""; {
+		for nextURI := e.config.scrapeURI + "/SEMP/v2/monitor/msgVpns/" + url.PathEscape(msgVpn) + "/queues"; nextURI != ""; {
 			body, err := e.getHTTP(nextURI)
 			if err != nil {
 				level.Error(e.logger).Log("msg", "Can't scrape getQueueSemp2", "err", err)
@@ -1388,7 +1389,7 @@ var metricsQueueInfoDet = metrics{
 func (e *Exporter) getQueueStatisticsSemp2(ch chan<- prometheus.Metric) (ok float64) {
 	vpnLists := e.getVpnListSemp2()
 	for _, msgVpn := range vpnLists {
-		for nextURI := e.config.scrapeURI + "/SEMP/v2/__private_monitor__/msgVpns/" + msgVpn + "/queues"; nextURI != ""; {
+		for nextURI := e.config.scrapeURI + "/SEMP/v2/__private_monitor__/msgVpns/" + url.PathEscape(msgVpn) + "/queues"; nextURI != ""; {
 			body, err := e.getHTTP(nextURI)
 			if err != nil {
 				level.Error(e.logger).Log("msg", "Can't scrape getQueueDetailSemp2", "err", err)
