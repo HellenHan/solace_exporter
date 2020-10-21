@@ -1389,10 +1389,10 @@ var metricsQueueInfoDet = metrics{
 func (e *Exporter) getQueueStatisticsSemp2(ch chan<- prometheus.Metric) (ok float64) {
 	vpnLists := e.getVpnListSemp2()
 	for _, msgVpn := range vpnLists {
-		for nextURI := e.config.scrapeURI + "/SEMP/v2/__private_monitor__/msgVpns/" + url.PathEscape(msgVpn) + "/queues"; nextURI != ""; {
+		for nextURI := e.config.scrapeURI + "/SEMP/v2/__private_monitor__/msgVpns/" + url.PathEscape(msgVpn) + "/queues?count=50"; nextURI != ""; {
 			body, err := e.getHTTP(nextURI)
 			if err != nil {
-				level.Error(e.logger).Log("msg", "Can't scrape getQueueDetailSemp2", "err", err)
+				level.Error(e.logger).Log("msg", "Can't scrape getQueueStatisticsSemp2", "err", err)
 				return 0
 			}
 			defer body.Close()
@@ -1792,7 +1792,7 @@ func main() {
 
 	// Test scrape to check if broker can be accessed. If it fails it prints a warn to the log file.
 	// Note that failure is not fatal, as broker might not have started up yet.
-	conf.timeout, _ = time.ParseDuration("2s") // Don't delay startup too much
+	//conf.timeout, _ = time.ParseDuration("2s") // Don't delay startup too much
 
 	// Configure endpoints
 	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
